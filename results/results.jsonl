@@ -1,1 +1,1 @@
-{"model":"gpt5","role":"theory","version":"TGT-U v1.1","env":"handshake","seed":0,"kpi":{"message":"Hi from GPT-5"},"invariance":{}}
+{"model":"gpt5","role":"theory","version":"TGT-U v1.1","env":"handshake","seed":0,"kpi":{"message":"Hi from GPT-5!"},"invariance":{}}
