@@ -1,0 +1,12 @@
+version: TGT-U v1.1
+seed: 1337
+runs:
+  - env: tunneling_1d_double_well
+    episodes: 100
+    flags: { tda: on, neural_operator: on, temp: full, risk_sensitivity: on, renyi_alpha: 1.2 }
+    micro: { head: diffusion, sampler_steps: 2 }
+    budget_ms_per_step: 10
+tests:
+  invariance: { gauge_equiv_error_max: 0.02, top3_J_rank_equal: true }
+kpi:
+  report: [TTI, WKB_integral, P_measured, P_pred, corr_Ppred_Pmeas, J_barrier, wall_time_ms_per_step]
