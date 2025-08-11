@@ -1,0 +1,1 @@
+{"env":"tunneling_1d_double_well","id":"dw_00042","obs":{"V0":6.0,"width":1.2,"E":2.0,"m":1.0,"hbar":1.0},"meta":{"seed":1337},"labels":{"WKB_integral":3.41,"TTI":3.39},"flags_default":{"tda":"on","temp":"full","renyi_alpha":1.2}}
