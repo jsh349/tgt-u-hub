@@ -9,45 +9,41 @@ permissions:
 
 jobs:
   append:
-    # PR의 댓글이고, '/append-jsonl '로 시작하며, 댓글 작성자가 본인일 때만
-    if: ${{ github.event.issue.pull_request && startsWith(github.event.comment.body, '/append-jsonl ') && github.actor == 'jsh349' }}
+    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/append-jsonl ') && github.actor == 'jsh349'
     runs-on: ubuntu-latest
     steps:
-      - name: Get PR head info
+      - name: Get PR head
         id: pr
         uses: actions/github-script@v7
         with:
           script: |
-            const pr = await github.rest.pulls.get({
-              owner: context.repo.owner, repo: context.repo.repo,
-              pull_number: context.issue.number
-            });
-            core.setOutput('headRef', pr.data.head.ref);
+            const {owner, repo} = context.repo;
+            const pr = await github.rest.pulls.get({owner, repo, pull_number: context.issue.number});
+            core.setOutput('ref', pr.data.head.ref);
             core.setOutput('repo', pr.data.head.repo.full_name);
+            core.setOutput('isFork', pr.data.head.repo.full_name !== `${owner}/${repo}`);
+
+      - name: Stop on fork
+        if: steps.pr.outputs.isFork == 'true'
+        run: echo "Fork PR not allowed" && exit 1
 
       - name: Checkout PR head
         uses: actions/checkout@v4
         with:
           repository: ${{ steps.pr.outputs.repo }}
-          ref: ${{ steps.pr.outputs.headRef }}
+          ref: ${{ steps.pr.outputs.ref }}
 
-      - name: Parse & validate JSON (single-line)
+      - name: Extract JSON line
         run: |
-          set -euo pipefail
           body="${{ github.event.comment.body }}"
-          line="${body#'/append-jsonl '}"
-          printf "%s" "$line" > /tmp/line.json
-          python - <<'PY'
-import json, pathlib, sys
-s = pathlib.Path('/tmp/line.json').read_text().strip()
-assert '\n' not in s, "single-line JSON only"
-json.loads(s)  # validate
-PY
+          echo "${body#'/append-jsonl '}" > /tmp/line.json
 
-      - name: Append to results/results.jsonl
+      - name: Validate JSON and append
         run: |
+          sudo apt-get update -y && sudo apt-get install -y jq
+          jq -e . /tmp/line.json > /dev/null
           mkdir -p results
-          if [ -f results/results.jsonl ] && [ -s results/results.jsonl ]; then printf "\n" >> results/results.jsonl; fi
+          if [ -s results/results.jsonl ]; then printf "\n" >> results/results.jsonl; fi
           cat /tmp/line.json >> results/results.jsonl
 
       - name: Commit & push
