@@ -18,34 +18,42 @@ jobs:
         with:
           script: |
             const {owner, repo} = context.repo;
-            const pr = await github.rest.pulls.get({owner, repo, pull_number: context.issue.number});
-            core.setOutput('ref', pr.data.head.ref);
-            core.setOutput('repo', pr.data.head.repo.full_name);
-            core.setOutput('isFork', pr.data.head.repo.full_name !== `${owner}/${repo}`);
-
-      - name: Stop on fork
-        if: steps.pr.outputs.isFork == 'true'
+            const num = context.issue.number;
+            const pr = await github.rest.pulls.get({owner, repo, pull_number: num});
+            return {
+              ref: pr.data.head.ref,
+              full: pr.data.head.repo.full_name,
+              isFork: pr.data.head.repo.full_name !== `${owner}/${repo}`
+            };
+          result-encoding: string
+      - name: Guard: same-repo only
+        if: ${{ fromJSON(steps.pr.outputs.result).isFork == true }}
         run: echo "Fork PR not allowed" && exit 1
 
       - name: Checkout PR head
         uses: actions/checkout@v4
         with:
-          repository: ${{ steps.pr.outputs.repo }}
-          ref: ${{ steps.pr.outputs.ref }}
+          repository: ${{ fromJSON(steps.pr.outputs.result).full }}
+          ref: ${{ fromJSON(steps.pr.outputs.result).ref }}
 
-      - name: Extract JSON line
-        run: |
-          body="${{ github.event.comment.body }}"
-          echo "${body#'/append-jsonl '}" > /tmp/line.json
-
-      - name: Validate JSON and append
-        run: |
-          sudo apt-get update -y && sudo apt-get install -y jq
-          jq -e . /tmp/line.json > /dev/null
-          mkdir -p results
-          if [ -s results/results.jsonl ]; then printf "\n" >> results/results.jsonl; fi
-          cat /tmp/line.json >> results/results.jsonl
-
+      - name: Append one JSON object (no jq, no sudo)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            // 1) 본문에서 prefix 제거
+            const body = context.payload.comment.body;
+            const prefix = '/append-jsonl ';
+            const line = body.startsWith(prefix) ? body.slice(prefix.length) : '';
+            // 2) 단일 라인 JSON 검증
+            if (!line || line.includes('\n')) throw new Error('JSON must be single-line');
+            let obj; try { obj = JSON.parse(line); } catch(e){ throw new Error('Invalid JSON'); }
+            if (typeof obj !== 'object' || Array.isArray(obj)) throw new Error('Top-level must be object');
+            // 3) 파일 append
+            fs.mkdirSync('results', { recursive: true });
+            const p = 'results/results.jsonl';
+            const needsNL = fs.existsSync(p) && fs.statSync(p).size > 0;
+            fs.appendFileSync(p, (needsNL? '\n' : '') + line, {encoding:'utf8'});
       - name: Commit & push
         run: |
           git config user.name "github-actions[bot]"
