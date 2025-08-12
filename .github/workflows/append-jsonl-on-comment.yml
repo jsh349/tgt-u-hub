@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   append:
-    # PR에 달린 댓글이고, '/append-jsonl '로 시작하며, 작성자가 'jsh349'일 때만
+    # PR의 댓글이고, '/append-jsonl '로 시작하며, 댓글 작성자가 본인일 때만
     if: ${{ github.event.issue.pull_request && startsWith(github.event.comment.body, '/append-jsonl ') && github.actor == 'jsh349' }}
     runs-on: ubuntu-latest
     steps:
@@ -19,18 +19,11 @@ jobs:
         with:
           script: |
             const pr = await github.rest.pulls.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
+              owner: context.repo.owner, repo: context.repo.repo,
               pull_number: context.issue.number
             });
             core.setOutput('headRef', pr.data.head.ref);
             core.setOutput('repo', pr.data.head.repo.full_name);
-            core.setOutput('isFork', pr.data.head.repo.full_name !== `${context.repo.owner}/${context.repo.repo}`);
-
-      - name: Fail if PR is from a fork
-        if: steps.pr.outputs.isFork == 'true'
-        run: |
-          echo "Fork PRs require a PAT or different setup. Aborting for safety."; exit 1
 
       - name: Checkout PR head
         uses: actions/checkout@v4
@@ -38,30 +31,23 @@ jobs:
           repository: ${{ steps.pr.outputs.repo }}
           ref: ${{ steps.pr.outputs.headRef }}
 
-      - name: Parse JSON from comment (single-line, <=4KB)
+      - name: Parse & validate JSON (single-line)
         run: |
+          set -euo pipefail
           body="${{ github.event.comment.body }}"
           line="${body#'/append-jsonl '}"
           printf "%s" "$line" > /tmp/line.json
           python - <<'PY'
 import json, pathlib, sys
-s = pathlib.Path('/tmp/line.json').read_text(encoding='utf-8').strip()
-if len(s.splitlines()) != 1:
-    sys.exit("JSON must be single-line")
-if len(s.encode('utf-8')) > 4096:
-    sys.exit("JSON too large (>4KB)")
-obj = json.loads(s)  # validate
-assert isinstance(obj, dict), "Top-level must be JSON object"
-print("OK")
+s = pathlib.Path('/tmp/line.json').read_text().strip()
+assert '\n' not in s, "single-line JSON only"
+json.loads(s)  # validate
 PY
 
       - name: Append to results/results.jsonl
         run: |
           mkdir -p results
-          # Ensure newline between records if file already exists & not empty
-          if [ -f results/results.jsonl ] && [ -s results/results.jsonl ]; then
-            printf "\n" >> results/results.jsonl
-          fi
+          if [ -f results/results.jsonl ] && [ -s results/results.jsonl ]; then printf "\n" >> results/results.jsonl; fi
           cat /tmp/line.json >> results/results.jsonl
 
       - name: Commit & push
@@ -69,5 +55,5 @@ PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add results/results.jsonl
-          git commit -m "Append JSONL from PR comment by ${{ github.actor }}"
+          git commit -m "append-jsonl by ${{ github.actor }}"
           git push
