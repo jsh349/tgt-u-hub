@@ -18,25 +18,22 @@ jobs:
         with:
           script: |
             const {owner, repo} = context.repo;
-            const num = context.issue.number;
-            const pr = await github.rest.pulls.get({owner, repo, pull_number: num});
-            return {
-              ref: pr.data.head.ref,
-              full: pr.data.head.repo.full_name,
-              isFork: pr.data.head.repo.full_name !== `${owner}/${repo}`
-            };
-          result-encoding: string
+            const pr = await github.rest.pulls.get({owner, repo, pull_number: context.issue.number});
+            core.setOutput('ref', pr.data.head.ref);
+            core.setOutput('full', pr.data.head.repo.full_name);
+            core.setOutput('isFork', pr.data.head.repo.full_name !== `${owner}/${repo}`);
+
       - name: Guard: same-repo only
-        if: ${{ fromJSON(steps.pr.outputs.result).isFork == true }}
+        if: steps.pr.outputs.isFork == 'true'
         run: echo "Fork PR not allowed" && exit 1
 
       - name: Checkout PR head
         uses: actions/checkout@v4
         with:
-          repository: ${{ fromJSON(steps.pr.outputs.result).full }}
-          ref: ${{ fromJSON(steps.pr.outputs.result).ref }}
+          repository: ${{ steps.pr.outputs.full }}
+          ref: ${{ steps.pr.outputs.ref }}
 
-      - name: Append one JSON object (no jq, no sudo)
+      - name: Append one JSON object (no jq)
         uses: actions/github-script@v7
         with:
           script: |
