@@ -1,0 +1,83 @@
+name: Grok reply and append JSONL
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  grok:
+    if: ${{ github.event.issue.pull_request && startsWith(github.event.comment.body, '/grok ') && github.actor == 'jsh349' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get PR head info
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner, repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            core.setOutput('headRef', pr.data.head.ref);
+            core.setOutput('repo', pr.data.head.repo.full_name);
+
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.pr.outputs.repo }}
+          ref: ${{ steps.pr.outputs.headRef }}
+
+      - name: Extract prompt
+        id: prompt
+        run: |
+          body="${{ github.event.comment.body }}"
+          prompt="${body#'/grok '}"
+          echo "PROMPT<<EOF" >> $GITHUB_OUTPUT
+          echo "$prompt" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Call xAI Chat Completions
+        env:
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          PROMPT=$(printf "%s" "${{ steps.prompt.outputs.PROMPT }}")
+          curl -sS https://api.x.ai/v1/chat/completions \
+            -H "Authorization: Bearer ${XAI_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d @- > /tmp/out.json <<JSON
+          {
+            "model": "grok-3-mini",
+            "messages": [
+              {"role":"system","content":"Reply briefly for a GitHub log."},
+              {"role":"user","content": ${PROMPT@Q} }
+            ]
+          }
+JSON
+          cat /tmp/out.json
+
+      - name: Build one JSONL line
+        run: |
+          set -euo pipefail
+          # OpenAI 호환 응답에서 본문 추출
+          TEXT=$(jq -r '.choices[0].message.content' /tmp/out.json)
+          mkdir -p results
+          # 안전한 JSON 문자열로 이스케이프하여 JSONL 구성
+          jq -cn --arg msg "$TEXT" '{
+            model:"grok4", role:"theory", version:"TGT-U v1.1",
+            env:"handshake", seed:0,
+            kpi:{message:$msg}, invariance:{}
+          }' > /tmp/line.json
+          if [ -f results/results.jsonl ] && [ -s results/results.jsonl ]; then printf "\n" >> results/results.jsonl; fi
+          cat /tmp/line.json >> results/results.jsonl
+
+      - name: Commit & push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add results/results.jsonl
+          git commit -m "grok: append reply by ${{ github.actor }}"
+          git push
