@@ -18,37 +18,35 @@ jobs:
         with:
           script: |
             const {owner, repo} = context.repo;
-            const pr = await github.rest.pulls.get({owner, repo, pull_number: context.issue.number});
-            core.setOutput('ref', pr.data.head.ref);
-            core.setOutput('repo', pr.data.head.repo.full_name);
+            const num = context.issue.number;
+            const pr = await github.rest.pulls.get({owner, repo, pull_number: num});
+            return { ref: pr.data.head.ref, full: pr.data.head.repo.full_name };
+          result-encoding: string
 
       - name: Checkout PR head
         uses: actions/checkout@v4
         with:
-          repository: ${{ steps.pr.outputs.repo }}
-          ref: ${{ steps.pr.outputs.ref }}
+          repository: ${{ fromJSON(steps.pr.outputs.result).full }}
+          ref: ${{ fromJSON(steps.pr.outputs.result).ref }}
 
       - name: Extract prompt
+        id: prompt
         run: |
           body="${{ github.event.comment.body }}"
           echo "${body#'/grok '}" > /tmp/prompt.txt
 
-      - name: Call xAI Chat Completions
+      - name: Call xAI (no jq)
         env:
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
         run: |
-          sudo apt-get update -y && sudo apt-get install -y jq
+          set -euo pipefail
           PROMPT=$(cat /tmp/prompt.txt)
           curl -sS https://api.x.ai/v1/chat/completions \
             -H "Authorization: Bearer ${XAI_API_KEY}" \
             -H "Content-Type: application/json" \
-            -d "$(jq -n --arg p "$PROMPT" '{model:"grok-3-mini",messages:[{"role":"system","content":"Reply briefly for a GitHub log."},{"role":"user","content":$p}] }')" \
-            | tee /tmp/out.json
-          TEXT=$(jq -r '.choices[0].message.content' /tmp/out.json)
-          mkdir -p results
-          jq -cn --arg msg "$TEXT" '{model:"grok4",role:"theory",version:"TGT-U v1.1",env:"handshake",seed:0,kpi:{message:$msg},invariance:{}}' > /tmp/line.json
-          if [ -s results/results.jsonl ]; then printf "\n" >> results/results.jsonl; fi
-          cat /tmp/line.json >> results/results.jsonl
+            -d "$(node -e 'console.log(JSON.stringify({model:"grok-3-mini",messages:[{role:"system",content:"Reply briefly for a GitHub log."},{role:"user",content:process.argv[1]}]},null,0))' "$PROMPT")" \
+            > /tmp/out.json
+          node -e 'const fs=require("fs"); const o=JSON.parse(fs.readFileSync("/tmp/out.json","utf8")); const t=o.choices?.[0]?.message?.content||"Ok"; const rec={model:"grok4",role:"theory",version:"TGT-U v1.1",env:"handshake",seed:0,kpi:{message:t},invariance:{}}; fs.mkdirSync("results",{recursive:true}); if(fs.existsSync("results/results.jsonl")&&fs.statSync("results/results.jsonl").size>0) fs.appendFileSync("results/results.jsonl","\n"); fs.appendFileSync("results/results.jsonl",JSON.stringify(rec));'
 
       - name: Commit & push
         run: |
