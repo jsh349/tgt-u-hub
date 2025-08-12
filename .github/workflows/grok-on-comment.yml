@@ -18,16 +18,15 @@ jobs:
         with:
           script: |
             const {owner, repo} = context.repo;
-            const num = context.issue.number;
-            const pr = await github.rest.pulls.get({owner, repo, pull_number: num});
-            return { ref: pr.data.head.ref, full: pr.data.head.repo.full_name };
-          result-encoding: string
+            const pr = await github.rest.pulls.get({owner, repo, pull_number: context.issue.number});
+            core.setOutput('ref', pr.data.head.ref);
+            core.setOutput('full', pr.data.head.repo.full_name);
 
       - name: Checkout PR head
         uses: actions/checkout@v4
         with:
-          repository: ${{ fromJSON(steps.pr.outputs.result).full }}
-          ref: ${{ fromJSON(steps.pr.outputs.result).ref }}
+          repository: ${{ steps.pr.outputs.full }}
+          ref: ${{ steps.pr.outputs.ref }}
 
       - name: Extract prompt
         id: prompt
@@ -35,7 +34,7 @@ jobs:
           body="${{ github.event.comment.body }}"
           echo "${body#'/grok '}" > /tmp/prompt.txt
 
-      - name: Call xAI (no jq)
+      - name: Call xAI
         env:
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
         run: |
@@ -44,9 +43,9 @@ jobs:
           curl -sS https://api.x.ai/v1/chat/completions \
             -H "Authorization: Bearer ${XAI_API_KEY}" \
             -H "Content-Type: application/json" \
-            -d "$(node -e 'console.log(JSON.stringify({model:"grok-3-mini",messages:[{role:"system",content:"Reply briefly for a GitHub log."},{role:"user",content:process.argv[1]}]},null,0))' "$PROMPT")" \
+            -d "$(node -e 'console.log(JSON.stringify({model:"grok-3-mini",messages:[{role:"system",content:"Reply briefly for a GitHub log."},{role:"user",content:process.argv[1]}]}))' "$PROMPT")" \
             > /tmp/out.json
-          node -e 'const fs=require("fs"); const o=JSON.parse(fs.readFileSync("/tmp/out.json","utf8")); const t=o.choices?.[0]?.message?.content||"Ok"; const rec={model:"grok4",role:"theory",version:"TGT-U v1.1",env:"handshake",seed:0,kpi:{message:t},invariance:{}}; fs.mkdirSync("results",{recursive:true}); if(fs.existsSync("results/results.jsonl")&&fs.statSync("results/results.jsonl").size>0) fs.appendFileSync("results/results.jsonl","\n"); fs.appendFileSync("results/results.jsonl",JSON.stringify(rec));'
+          node -e 'const fs=require("fs"); const o=JSON.parse(fs.readFileSync("/tmp/out.json","utf8")); const t=o.choices?.[0]?.message?.content||"Ok"; const rec={model:"grok4",role:"theory",version:"TGT-U v1.1",env:"handshake",seed:0,kpi:{message:t},invariance:{}}; fs.mkdirSync("results",{recursive:true}); const p="results/results.jsonl"; if(fs.existsSync(p)&&fs.statSync(p).size>0) fs.appendFileSync(p,"\n"); fs.appendFileSync(p,JSON.stringify(rec));'
 
       - name: Commit & push
         run: |
