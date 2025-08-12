@@ -41,19 +41,17 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            // 1) 본문에서 prefix 제거
             const body = context.payload.comment.body;
             const prefix = '/append-jsonl ';
             const line = body.startsWith(prefix) ? body.slice(prefix.length) : '';
-            // 2) 단일 라인 JSON 검증
             if (!line || line.includes('\n')) throw new Error('JSON must be single-line');
             let obj; try { obj = JSON.parse(line); } catch(e){ throw new Error('Invalid JSON'); }
             if (typeof obj !== 'object' || Array.isArray(obj)) throw new Error('Top-level must be object');
-            // 3) 파일 append
             fs.mkdirSync('results', { recursive: true });
             const p = 'results/results.jsonl';
             const needsNL = fs.existsSync(p) && fs.statSync(p).size > 0;
             fs.appendFileSync(p, (needsNL? '\n' : '') + line, {encoding:'utf8'});
+
       - name: Commit & push
         run: |
           git config user.name "github-actions[bot]"
