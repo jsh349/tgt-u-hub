@@ -1,0 +1,6 @@
+git checkout chore/handshake-gpt5
+echo '{"model":"gpt5","role":"handshake","version":"TGT-U v1.1","env":"handshake","seed":0,"kpi":{"message":"Hi"},"invariance":{}}' > results/results.jsonl
+echo '{"model":"grok4","role":"theory","version":"TGT-U v1.1","env":"handshake","seed":0,"kpi":{"message":"Hi"},"invariance":{}}' >> results/results.jsonl
+git add results/results.jsonl
+git commit -m "Append GPT-5 and Grok4 handshake lines"
+git push origin chore/handshake-gpt5
